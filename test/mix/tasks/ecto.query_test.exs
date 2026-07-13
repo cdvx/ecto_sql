@@ -273,7 +273,7 @@ defmodule Mix.Tasks.Ecto.QueryTest do
   end
 
   test "raises when the adapter does not support read-only transactions" do
-    assert_raise ArgumentError, ~r/read-only transactions.*Ecto.Adapters.Tds/s, fn ->
+    assert_raise ArgumentError, ~r/read-only transactions are not supported/, fn ->
       run(["-r", to_string(__MODULE__.NoReadOnlyRepo), inspect(Post)])
     end
   end
@@ -282,7 +282,7 @@ defmodule Mix.Tasks.Ecto.QueryTest do
     def __adapter__, do: Ecto.Adapters.Tds
 
     def transaction(_fun, _opts) do
-      raise ArgumentError, "read-only transactions are not supported by Ecto.Adapters.Tds"
+      raise ArgumentError, "read-only transactions are not supported"
     end
   end
 

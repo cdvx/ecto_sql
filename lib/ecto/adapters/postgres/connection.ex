@@ -136,7 +136,7 @@ if Code.ensure_loaded?(Postgrex) do
       DBConnection.transaction(
         conn,
         fn transaction_conn ->
-          {:ok, _} = query(transaction_conn, "SET TRANSACTION READ ONLY", [], log: nil)
+          {:ok, _} = query(transaction_conn, "SET TRANSACTION READ ONLY", [], log: opts[:log])
           fun.(transaction_conn)
         end,
         opts

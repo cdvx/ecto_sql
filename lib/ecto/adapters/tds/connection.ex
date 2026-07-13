@@ -65,11 +65,6 @@ if Code.ensure_loaded?(Tds) do
     end
 
     @impl true
-    def read_only_transaction(_conn, _opts, _fun) do
-      raise ArgumentError, "read-only transactions are not supported by Ecto.Adapters.Tds"
-    end
-
-    @impl true
     def query_many(_conn, _sql, _params, _opts) do
       error!(nil, "query_many is not supported in the Tds adapter")
     end

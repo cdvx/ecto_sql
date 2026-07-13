@@ -29,7 +29,7 @@ if Code.ensure_loaded?(MyXQL) do
 
     @impl true
     def read_only_transaction(conn, opts, fun) do
-      {:ok, _} = query(conn, "SET TRANSACTION READ ONLY", [], log: nil)
+      {:ok, _} = query(conn, "SET TRANSACTION READ ONLY", [], log: opts[:log])
       DBConnection.transaction(conn, fun, opts)
     end
 
