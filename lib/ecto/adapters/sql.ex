@@ -278,7 +278,7 @@ defmodule Ecto.Adapters.SQL do
 
       @impl true
       def transaction(meta, opts, fun) do
-        Ecto.Adapters.SQL.transaction(meta, opts, fun)
+        Ecto.Adapters.SQL.transaction(meta, @conn, opts, fun)
       end
 
       @impl true
@@ -1214,8 +1214,12 @@ defmodule Ecto.Adapters.SQL do
   ## Transactions
 
   @doc false
-  def transaction(adapter_meta, opts, callback) do
-    checkout_or_transaction(:transaction, adapter_meta, opts, callback)
+  def transaction(adapter_meta, connection, opts, callback) do
+    if opts[:read_only] do
+      read_only_transaction(adapter_meta, connection, opts, callback)
+    else
+      checkout_or_transaction(:transaction, adapter_meta, opts, callback)
+    end
   end
 
   @doc false
@@ -1467,6 +1471,33 @@ defmodule Ecto.Adapters.SQL do
   defp last_non_ecto_entries([], _, acc), do: acc
 
   ## Connection helpers
+
+  defp read_only_transaction(adapter_meta, connection, opts, callback) do
+    %{pid: pool, telemetry: telemetry, opts: default_opts, log_stacktrace_mfa: log_stacktrace_mfa} =
+      adapter_meta
+
+    opts = with_log(telemetry, log_stacktrace_mfa, [], opts ++ default_opts)
+
+    callback = fn transaction_conn ->
+      previous_conn = put_conn(pool, transaction_conn)
+
+      try do
+        callback.()
+      after
+        reset_conn(pool, previous_conn)
+      end
+    end
+
+    if function_exported?(connection, :read_only_transaction, 3) do
+      DBConnection.run(
+        get_conn_or_pool(pool, adapter_meta),
+        &connection.read_only_transaction(&1, opts, callback),
+        opts
+      )
+    else
+      raise ArgumentError, "read-only transactions are not supported by #{inspect(connection)}"
+    end
+  end
 
   defp checkout_or_transaction(fun, adapter_meta, opts, callback) do
     %{pid: pool, telemetry: telemetry, opts: default_opts, log_stacktrace_mfa: log_stacktrace_mfa} =

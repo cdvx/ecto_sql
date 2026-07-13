@@ -81,12 +81,15 @@ defmodule Mix.Tasks.Ecto.Query do
       if opts[:sql] do
         {:ok, format_sql(repo, query)}
       else
-        read_only_transaction(repo, fn ->
-          query
-          |> repo.all()
-          |> Enum.take(limit)
-          |> inspect_entries()
-        end)
+        repo.transaction(
+          fn ->
+            query
+            |> repo.all()
+            |> Enum.take(limit)
+            |> inspect_entries()
+          end,
+          read_only: true
+        )
       end
 
     result
@@ -144,35 +147,6 @@ defmodule Mix.Tasks.Ecto.Query do
   defp alias?({:alias, _, [_aliases]}), do: true
   defp alias?({:alias, _, [_aliases, _opts]}), do: true
   defp alias?(_), do: false
-
-  defp read_only_transaction(repo, fun) do
-    do_read_only_transaction(repo.__adapter__(), repo, fun)
-  end
-
-  defp do_read_only_transaction(Ecto.Adapters.Postgres, repo, fun) do
-    repo.transaction(fn ->
-      repo.query!("SET TRANSACTION READ ONLY", [], log: false)
-      fun.()
-    end)
-  end
-
-  defp do_read_only_transaction(Ecto.Adapters.MyXQL, repo, fun) do
-    repo.checkout(fn ->
-      repo.query!("START TRANSACTION READ ONLY", [], log: false)
-
-      try do
-        {:ok, fun.()}
-      after
-        repo.query!("ROLLBACK", [], log: false)
-      end
-    end)
-  end
-
-  defp do_read_only_transaction(adapter, _repo, _fun) do
-    Mix.raise(
-      "ecto.query requires read-only transactions, which are not supported by #{inspect(adapter)}"
-    )
-  end
 
   defp format_sql(repo, query) do
     {sql, params} = repo.to_sql(:all, query)

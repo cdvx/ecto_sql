@@ -52,9 +52,8 @@ defmodule Mix.Tasks.Ecto.QueryTest do
 
       run(["-r", to_string(__MODULE__.PostgresRepo), "from(p in Post)"])
 
-      assert_received {:transaction, __MODULE__.PostgresRepo, _fun}
-      assert_received {:query!, "SET TRANSACTION READ ONLY", [], opts}
-      assert opts[:log] == false
+      assert_received {:transaction, __MODULE__.PostgresRepo, _fun, opts}
+      assert opts[:read_only]
       assert_received {:all, %Ecto.Query{}}
       assert_received {:mix_shell, :info, [output]}
 
@@ -78,7 +77,8 @@ defmodule Mix.Tasks.Ecto.QueryTest do
 
       run(["from(p in Post)"])
 
-      assert_received {:query!, "SET TRANSACTION READ ONLY", [], _opts}
+      assert_received {:transaction, __MODULE__.PostgresRepo, _fun, opts}
+      assert opts[:read_only]
     end)
   end
 
@@ -196,7 +196,7 @@ defmodule Mix.Tasks.Ecto.QueryTest do
 
       assert_received {:to_sql, :all, %Ecto.Query{}, []}
       refute_received {:all, _query}
-      refute_received {:query!, "SET TRANSACTION READ ONLY", [], _opts}
+      refute_received {:transaction, __MODULE__.PostgresRepo, _fun, _opts}
       assert_received {:mix_shell, :info, [output]}
 
       assert output =~ ~s[SQL:\nSELECT p0."id" FROM "posts" AS p0 WHERE (p0."id" = $1)]
@@ -204,17 +204,14 @@ defmodule Mix.Tasks.Ecto.QueryTest do
     end)
   end
 
-  test "starts MySQL read-only transactions explicitly" do
+  test "runs MySQL queries in a read-only transaction" do
     Process.put(:test_repo_all_results, [[1, "first", "hunter2"]])
 
     run(["-r", to_string(__MODULE__.MyXQLRepo), inspect(Post)])
 
-    assert_received {:checkout, __MODULE__.MyXQLRepo}
-    assert_received {:myxql_query!, "START TRANSACTION READ ONLY", [], opts}
-    assert opts[:log] == false
+    assert_received {:myxql_transaction, __MODULE__.MyXQLRepo, _fun, opts}
+    assert opts[:read_only]
     assert_received {:myxql_all, %Ecto.Query{}}
-    assert_received {:myxql_query!, "ROLLBACK", [], rollback_opts}
-    assert rollback_opts[:log] == false
     assert_received {:mix_shell, :info, [output]}
     assert output =~ ~s(title: "first")
   end
@@ -224,9 +221,7 @@ defmodule Mix.Tasks.Ecto.QueryTest do
 
     run(["-r", to_string(__MODULE__.MyXQLRepo), "--sql", inspect(Post)])
 
-    refute_received {:checkout, __MODULE__.MyXQLRepo}
-    refute_received {:myxql_query!, "START TRANSACTION READ ONLY", [], _opts}
-    refute_received {:myxql_query!, "ROLLBACK", [], _opts}
+    refute_received {:myxql_transaction, __MODULE__.MyXQLRepo, _fun, _opts}
     assert_received {:myxql_to_sql, :all, %Ecto.Query{}, []}
     assert_received {:mix_shell, :info, [output]}
     assert output =~ ~s[SQL:\nSELECT p0.`id` FROM `posts` AS p0]
@@ -278,20 +273,24 @@ defmodule Mix.Tasks.Ecto.QueryTest do
   end
 
   test "raises when the adapter does not support read-only transactions" do
-    assert_raise Mix.Error, ~r/read-only transactions.*Ecto.Adapters.Tds/s, fn ->
+    assert_raise ArgumentError, ~r/read-only transactions.*Ecto.Adapters.Tds/s, fn ->
       run(["-r", to_string(__MODULE__.NoReadOnlyRepo), inspect(Post)])
     end
   end
 
   defmodule NoReadOnlyRepo do
     def __adapter__, do: Ecto.Adapters.Tds
+
+    def transaction(_fun, _opts) do
+      raise ArgumentError, "read-only transactions are not supported by Ecto.Adapters.Tds"
+    end
   end
 
   defmodule PostgresRepo do
     def __adapter__, do: Ecto.Adapters.Postgres
 
-    def transaction(fun, _opts \\ []) do
-      send(self(), {:transaction, __MODULE__, fun})
+    def transaction(fun, opts \\ []) do
+      send(self(), {:transaction, __MODULE__, fun, opts})
       {:ok, fun.()}
     end
 
@@ -326,14 +325,9 @@ defmodule Mix.Tasks.Ecto.QueryTest do
   defmodule MyXQLRepo do
     def __adapter__, do: Ecto.Adapters.MyXQL
 
-    def checkout(fun, _opts \\ []) do
-      send(test_process(), {:checkout, __MODULE__})
-      fun.()
-    end
-
-    def query!(sql, params \\ [], opts \\ []) do
-      send(test_process(), {:myxql_query!, sql, params, opts})
-      %{rows: [], num_rows: 0}
+    def transaction(fun, opts \\ []) do
+      send(test_process(), {:myxql_transaction, __MODULE__, fun, opts})
+      {:ok, fun.()}
     end
 
     def all(query) do
