@@ -278,7 +278,12 @@ defmodule Ecto.Adapters.SQL do
 
       @impl true
       def transaction(meta, opts, fun) do
-        Ecto.Adapters.SQL.transaction(meta, @conn, opts, fun)
+        Ecto.Adapters.SQL.transaction(meta, opts, fun)
+      end
+
+      @doc false
+      def read_only_transaction(repo, opts, fun) do
+        Ecto.Adapters.SQL.read_only_transaction(Ecto.Adapter.lookup_meta(repo), @conn, opts, fun)
       end
 
       @impl true
@@ -1214,12 +1219,8 @@ defmodule Ecto.Adapters.SQL do
   ## Transactions
 
   @doc false
-  def transaction(adapter_meta, connection, opts, callback) do
-    if opts[:read_only] do
-      read_only_transaction(adapter_meta, connection, opts, callback)
-    else
-      checkout_or_transaction(:transaction, adapter_meta, opts, callback)
-    end
+  def transaction(adapter_meta, opts, callback) do
+    checkout_or_transaction(:transaction, adapter_meta, opts, callback)
   end
 
   @doc false
@@ -1472,7 +1473,8 @@ defmodule Ecto.Adapters.SQL do
 
   ## Connection helpers
 
-  defp read_only_transaction(adapter_meta, connection, opts, callback) do
+  @doc false
+  def read_only_transaction(adapter_meta, connection, opts, callback) do
     %{pid: pool, telemetry: telemetry, opts: default_opts, log_stacktrace_mfa: log_stacktrace_mfa} =
       adapter_meta
 

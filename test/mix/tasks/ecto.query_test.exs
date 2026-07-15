@@ -52,8 +52,7 @@ defmodule Mix.Tasks.Ecto.QueryTest do
 
       run(["-r", to_string(__MODULE__.PostgresRepo), "from(p in Post)"])
 
-      assert_received {:transaction, __MODULE__.PostgresRepo, _fun, opts}
-      assert opts[:read_only]
+      assert_received {:read_only_transaction, __MODULE__.PostgresRepo, _fun, []}
       assert_received {:all, %Ecto.Query{}}
       assert_received {:mix_shell, :info, [output]}
 
@@ -77,8 +76,7 @@ defmodule Mix.Tasks.Ecto.QueryTest do
 
       run(["from(p in Post)"])
 
-      assert_received {:transaction, __MODULE__.PostgresRepo, _fun, opts}
-      assert opts[:read_only]
+      assert_received {:read_only_transaction, __MODULE__.PostgresRepo, _fun, []}
     end)
   end
 
@@ -196,7 +194,7 @@ defmodule Mix.Tasks.Ecto.QueryTest do
 
       assert_received {:to_sql, :all, %Ecto.Query{}, []}
       refute_received {:all, _query}
-      refute_received {:transaction, __MODULE__.PostgresRepo, _fun, _opts}
+      refute_received {:read_only_transaction, __MODULE__.PostgresRepo, _fun, _opts}
       assert_received {:mix_shell, :info, [output]}
 
       assert output =~ ~s[SQL:\nSELECT p0."id" FROM "posts" AS p0 WHERE (p0."id" = $1)]
@@ -209,8 +207,7 @@ defmodule Mix.Tasks.Ecto.QueryTest do
 
     run(["-r", to_string(__MODULE__.MyXQLRepo), inspect(Post)])
 
-    assert_received {:myxql_transaction, __MODULE__.MyXQLRepo, _fun, opts}
-    assert opts[:read_only]
+    assert_received {:myxql_read_only_transaction, __MODULE__.MyXQLRepo, _fun, []}
     assert_received {:myxql_all, %Ecto.Query{}}
     assert_received {:mix_shell, :info, [output]}
     assert output =~ ~s(title: "first")
@@ -221,7 +218,7 @@ defmodule Mix.Tasks.Ecto.QueryTest do
 
     run(["-r", to_string(__MODULE__.MyXQLRepo), "--sql", inspect(Post)])
 
-    refute_received {:myxql_transaction, __MODULE__.MyXQLRepo, _fun, _opts}
+    refute_received {:myxql_read_only_transaction, __MODULE__.MyXQLRepo, _fun, _opts}
     assert_received {:myxql_to_sql, :all, %Ecto.Query{}, []}
     assert_received {:mix_shell, :info, [output]}
     assert output =~ ~s[SQL:\nSELECT p0.`id` FROM `posts` AS p0]
@@ -279,15 +276,21 @@ defmodule Mix.Tasks.Ecto.QueryTest do
   end
 
   defmodule NoReadOnlyRepo do
-    def __adapter__, do: Ecto.Adapters.Tds
+    def __adapter__, do: Mix.Tasks.Ecto.QueryTest.NoReadOnlyAdapter
 
-    def transaction(_fun, _opts) do
+    def get_dynamic_repo, do: __MODULE__
+  end
+
+  defmodule NoReadOnlyAdapter do
+    def read_only_transaction(_repo, _opts, _fun) do
       raise ArgumentError, "read-only transactions are not supported"
     end
   end
 
   defmodule PostgresRepo do
-    def __adapter__, do: Ecto.Adapters.Postgres
+    def __adapter__, do: Mix.Tasks.Ecto.QueryTest.PostgresAdapter
+
+    def get_dynamic_repo, do: __MODULE__
 
     def transaction(fun, opts \\ []) do
       send(self(), {:transaction, __MODULE__, fun, opts})
@@ -322,8 +325,17 @@ defmodule Mix.Tasks.Ecto.QueryTest do
     end
   end
 
+  defmodule PostgresAdapter do
+    def read_only_transaction(repo, opts, fun) do
+      send(self(), {:read_only_transaction, repo, fun, opts})
+      {:ok, fun.()}
+    end
+  end
+
   defmodule MyXQLRepo do
-    def __adapter__, do: Ecto.Adapters.MyXQL
+    def __adapter__, do: Mix.Tasks.Ecto.QueryTest.MyXQLAdapter
+
+    def get_dynamic_repo, do: __MODULE__
 
     def transaction(fun, opts \\ []) do
       send(test_process(), {:myxql_transaction, __MODULE__, fun, opts})
@@ -347,6 +359,13 @@ defmodule Mix.Tasks.Ecto.QueryTest do
 
     defp test_process do
       self()
+    end
+  end
+
+  defmodule MyXQLAdapter do
+    def read_only_transaction(repo, opts, fun) do
+      send(self(), {:myxql_read_only_transaction, repo, fun, opts})
+      {:ok, fun.()}
     end
   end
 

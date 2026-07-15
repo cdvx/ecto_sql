@@ -81,15 +81,12 @@ defmodule Mix.Tasks.Ecto.Query do
       if opts[:sql] do
         {:ok, format_sql(repo, query)}
       else
-        repo.transaction(
-          fn ->
-            query
-            |> repo.all()
-            |> Enum.take(limit)
-            |> inspect_entries()
-          end,
-          read_only: true
-        )
+        read_only_transaction(repo, fn ->
+          query
+          |> repo.all()
+          |> Enum.take(limit)
+          |> inspect_entries()
+        end)
       end
 
     result
@@ -158,6 +155,10 @@ defmodule Mix.Tasks.Ecto.Query do
     Params:
     #{inspect(params, limit: :infinity, pretty: true)}
     """
+  end
+
+  defp read_only_transaction(repo, fun) do
+    repo.__adapter__().read_only_transaction(repo.get_dynamic_repo(), [], fun)
   end
 
   defp inspect_entries(entries) do
