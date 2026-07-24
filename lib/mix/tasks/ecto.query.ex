@@ -25,7 +25,7 @@ defmodule Mix.Tasks.Ecto.Query do
   If a local `.iex.exs` file exists, only aliases from the file are made
   available to the query.
 
-  The query runs inside a read-only transaction.
+  Unless `--to-sql` or `--explain` is given, the query runs inside a read-only transaction.
 
   ## Examples
 
